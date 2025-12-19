@@ -19,7 +19,7 @@ spec:
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: one
+    namespace: ${ENV}
 
   syncPolicy:
     automated:
