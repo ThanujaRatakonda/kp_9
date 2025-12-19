@@ -15,7 +15,7 @@ spec:
     path: database-hc
     helm:
       valueFiles:
-        - values.yaml
+        - databasevalues.yaml
 
   destination:
     server: https://kubernetes.default.svc
