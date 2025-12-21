@@ -1,118 +1,189 @@
 pipeline {
     agent any
-
+    environment {
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
+        HARBOR_URL = "10.131.103.92:8090"
+        HARBOR_PROJECT = "kp_6"
+        TRIVY_OUTPUT_JSON = "trivy-output.json"
+        ENV = "dev" // Change dynamically if needed
+    }
     parameters {
         choice(
-            name: 'ENV',
-            choices: ['dev', 'qa', 'prod'],
-            description: 'Target environment'
+            name: 'ACTION',
+            choices: ['FULL_PIPELINE', 'SCALE_ONLY', 'FRONTEND_ONLY', 'BACKEND_ONLY'],
+            description: 'Choose FULL_PIPELINE, SCALE_ONLY, FRONTEND_ONLY, or BACKEND_ONLY'
         )
-    }
-
-    environment {
-        REGISTRY = "10.131.103.92:8090"
-        PROJECT  = "kp_9"
-        IMAGE_TAG = "${BUILD_NUMBER}"
+        string(name: 'FRONTEND_REPLICA_COUNT', defaultValue: '1', description: 'Replica count for frontend')
+        string(name: 'BACKEND_REPLICA_COUNT', defaultValue: '1', description: 'Replica count for backend')
+        string(name: 'DB_REPLICA_COUNT', defaultValue: '1', description: 'Replica count for database')
     }
 
     stages {
+        stage('Checkout') {
+            when { expression {  params.ACTION != 'SCALE_ONLY' } }
+            steps { git 'https://github.com/ThanujaRatakonda/kp_6.git' }
+        }
 
-        stage('Checkout Code') {
+        stage('Setup Storage') {
+            when { expression { params.ACTION == 'FULL_PIPELINE' } }
             steps {
-                checkout scm
+                sh "kubectl apply -f k8s/shared-storage-class.yaml || true"
+                sh "kubectl apply -f k8s/shared-pv.yaml || true"
+                sh "kubectl apply -f k8s/shared-pvc.yaml || true"
             }
         }
 
-        stage('Build Docker Images') {
-            steps {
-                sh '''
-                docker build -t $REGISTRY/$PROJECT/backend:$IMAGE_TAG backend
-                docker build -t $REGISTRY/$PROJECT/frontend:$IMAGE_TAG frontend
-                docker build -t $REGISTRY/$PROJECT/database:$IMAGE_TAG database
-                '''
-            }
+        // --- FRONTEND ---
+        stage('Build Frontend') {
+            when { expression { params.ACTION in ['FULL_PIPELINE', 'FRONTEND_ONLY'] } }
+            steps { sh "docker build -t frontend:${IMAGE_TAG} ./frontend" }
         }
 
-        stage('Login to Harbor') {
+        stage('Scan Frontend') {
+            when { expression { params.ACTION in ['FULL_PIPELINE', 'FRONTEND_ONLY'] } }
             steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'harbor-creds',
-                        usernameVariable: 'HARBOR_USER',
-                        passwordVariable: 'HARBOR_PASS'
-                    )
-                ]) {
-                    sh '''
-                    echo "$HARBOR_PASS" | docker login $REGISTRY -u "$HARBOR_USER" --password-stdin
-                    '''
+                sh """
+                    trivy image frontend:${IMAGE_TAG} --severity CRITICAL,HIGH --format json -o ${TRIVY_OUTPUT_JSON}
+                """
+                archiveArtifacts artifacts: "${TRIVY_OUTPUT_JSON}", fingerprint: true
+                script {
+                    def vulnerabilities = sh(script: """
+                        jq '[.Results[] |
+                             (.Packages // [] | .[]? | select(.Severity=="CRITICAL" or .Severity=="HIGH")) +
+                             (.Vulnerabilities // [] | .[]? | select(.Severity=="CRITICAL" or .Severity=="HIGH"))
+                            ] | length' ${TRIVY_OUTPUT_JSON}
+                    """, returnStdout: true).trim()
+                    if (vulnerabilities.toInteger() > 0) { error "CRITICAL/HIGH vulnerabilities found in frontend!" }
                 }
             }
         }
 
-        stage('Push Docker Images') {
+        stage('Push Frontend') {
+            when { expression { params.ACTION in ['FULL_PIPELINE', 'FRONTEND_ONLY'] } }
             steps {
-                sh '''
-                docker push $REGISTRY/$PROJECT/backend:$IMAGE_TAG
-                docker push $REGISTRY/$PROJECT/frontend:$IMAGE_TAG
-                docker push $REGISTRY/$PROJECT/database:$IMAGE_TAG
-                '''
-            }
-        }
-
-        stage('Update Helm Image Tags') {
-            steps {
-                sh '''
-                echo "Updating Helm values to tag $IMAGE_TAG"
-
-                sed -i "s|tag:.*|tag: \\"$IMAGE_TAG\\"|" backend-hc/backendvalues.yaml
-                sed -i "s|tag:.*|tag: \\"$IMAGE_TAG\\"|" frontend-hc/frontendvalues.yaml
-                sed -i "s|tag:.*|tag: \\"$IMAGE_TAG\\"|" database-hc/databasevalues.yaml
-
-                echo "Backend:"
-                grep tag backend-hc/backendvalues.yaml
-                echo "Frontend:"
-                grep tag frontend-hc/frontendvalues.yaml
-                echo "Database:"
-                grep tag database-hc/databasevalues.yaml
-                '''
-            }
-        }
-
-        stage('Commit Helm Changes') {
-            steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'git-creds',
-                        usernameVariable: 'GIT_USER',
-                        passwordVariable: 'GIT_PASS'
-                    )
-                ]) {
-                    sh '''
-                    git config user.email "ratakondathanuja@gmail.com"
-                    git config user.name "thanuja"
-
-                    git add .
-                    git commit -m "Update image tags to $IMAGE_TAG for $ENV" || true
-
-                    git push https://$GIT_USER:$GIT_PASS@github.com/ThanujaRatakonda/kp_9.git master
-                    '''
+                script {
+                    def fullImage = "${HARBOR_URL}/${HARBOR_PROJECT}/frontend:${IMAGE_TAG}"
+                    withCredentials([usernamePassword(credentialsId: 'harbor-creds', usernameVariable: 'HARBOR_USER', passwordVariable: 'HARBOR_PASS')]) {
+                        sh "echo \$HARBOR_PASS | docker login ${HARBOR_URL} -u \$HARBOR_USER --password-stdin"
+                        sh "docker tag frontend:${IMAGE_TAG} ${fullImage}"
+                        sh "docker push ${fullImage}"
+                        sh "docker rmi frontend:${IMAGE_TAG} || true"
+                    }
                 }
             }
         }
 
-        stage('Trigger ArgoCD Sync') {
+        stage('Deploy Frontend') {
+            when { expression { params.ACTION in ['FULL_PIPELINE', 'FRONTEND_ONLY'] } }
             steps {
-                echo "ArgoCD will auto-sync from Git (GitOps)"
+                sh "sed -i 's/__IMAGE_TAG__/${IMAGE_TAG}/g' k8s/frontend-deployment.yaml"
+                sh "kubectl apply -f k8s/frontend-deployment.yaml"
             }
         }
-    }
 
-    post {
-        success {
-            echo "Deployment to $ENV completed successfully "
+        // --- BACKEND ---
+        stage('Build Backend') {
+            when { expression { params.ACTION in ['FULL_PIPELINE', 'BACKEND_ONLY'] } }
+            steps { sh "docker build -t backend:${IMAGE_TAG} ./backend" }
         }
-        failure {
-            echo "Deployment to $ENV failed "
+
+        stage('Scan Backend') {
+            when { expression { params.ACTION in ['FULL_PIPELINE', 'BACKEND_ONLY'] } }
+            steps {
+                sh """
+                    trivy image backend:${IMAGE_TAG} --severity CRITICAL,HIGH --format json -o ${TRIVY_OUTPUT_JSON}
+                """
+                archiveArtifacts artifacts: "${TRIVY_OUTPUT_JSON}", fingerprint: true
+                script {
+                    def vulnerabilities = sh(script: """
+                        jq '[.Results[] |
+                             (.Packages // [] | .[]? | select(.Severity=="CRITICAL" or .Severity=="HIGH")) +
+                             (.Vulnerabilities // [] | .[]? | select(.Severity=="CRITICAL" or .Severity=="HIGH"))
+                            ] | length' ${TRIVY_OUTPUT_JSON}
+                    """, returnStdout: true).trim()
+                    if (vulnerabilities.toInteger() > 0) { error "CRITICAL/HIGH vulnerabilities found in backend!" }
+                }
+            }
+        }
+
+        stage('Push Backend') {
+            when { expression { params.ACTION in ['FULL_PIPELINE', 'BACKEND_ONLY'] } }
+            steps {
+                script {
+                    def fullImage = "${HARBOR_URL}/${HARBOR_PROJECT}/backend:${IMAGE_TAG}"
+                    withCredentials([usernamePassword(credentialsId: 'harbor-creds', usernameVariable: 'HARBOR_USER', passwordVariable: 'HARBOR_PASS')]) {
+                        sh "echo \$HARBOR_PASS | docker login ${HARBOR_URL} -u \$HARBOR_USER --password-stdin"
+                        sh "docker tag backend:${IMAGE_TAG} ${fullImage}"
+                        sh "docker push ${fullImage}"
+                        sh "docker rmi backend:${IMAGE_TAG} || true"
+                    }
+                }
+            }
+        }
+
+        stage('Deploy Backend') {
+            when { expression { params.ACTION in ['FULL_PIPELINE', 'BACKEND_ONLY'] } }
+            steps {
+                sh "sed -i 's/__IMAGE_TAG__/${IMAGE_TAG}/g' k8s/backend-deployment.yaml"
+                sh "kubectl apply -f k8s/backend-deployment.yaml"
+                sh "kubectl apply -f k8s/backend-ingress.yaml || true"
+            }
+        }
+
+        // --- DATABASE ---
+        stage('Deploy Database') {
+            when { expression { params.ACTION in ['FULL_PIPELINE', 'SCALE_ONLY'] } }
+            steps {
+                sh "kubectl apply -f k8s/database-deployment.yaml || true"
+                sh "kubectl scale statefulset database --replicas=${params.DB_REPLICA_COUNT}"
+            }
+        }
+
+        // --- SCALING ---
+        stage('Scale Frontend & Backend') {
+            when { expression { params.ACTION in ['FULL_PIPELINE', 'SCALE_ONLY', 'FRONTEND_ONLY', 'BACKEND_ONLY'] } }
+            steps {
+                script {
+                    if (params.ACTION in ['FULL_PIPELINE', 'SCALE_ONLY', 'FRONTEND_ONLY']) {
+                        sh "kubectl scale deployment frontend --replicas=${params.FRONTEND_REPLICA_COUNT}"
+                    }
+                    if (params.ACTION in ['FULL_PIPELINE', 'SCALE_ONLY', 'BACKEND_ONLY']) {
+                        sh "kubectl scale deployment backend --replicas=${params.BACKEND_REPLICA_COUNT}"
+                    }
+                    sh "kubectl get deployments"
+                }
+            }
+        }
+
+        stage('Deploy HPA/VPA') {
+            when { expression { params.ACTION in ['FULL_PIPELINE', 'SCALE_ONLY', 'FRONTEND_ONLY', 'BACKEND_ONLY'] } }
+            steps {
+                sh "kubectl apply -f k8s/frontend-vpa.yaml || true"
+                sh "kubectl apply -f k8s/backend-vpa.yaml || true"
+            }
+        }
+
+        // --- ARGOCD ---
+        stage('Apply ArgoCD Applications') {
+            when { expression { params.ACTION == 'FULL_PIPELINE' } }
+            steps {
+                sh """
+                    for f in argocd/*.yaml; do
+                        sed 's/\\\${ENV}/${ENV}/g' \$f | kubectl apply -f -
+                    done
+                """
+            }
+        }
+
+        stage('Sync ArgoCD Apps') {
+            when { expression { params.ACTION == 'FULL_PIPELINE' } }
+            steps {
+                sh """
+                    argocd app sync backend --grpc-web
+                    argocd app sync database --grpc-web
+                    argocd app sync frontend --grpc-web
+                """
+            }
         }
     }
 }
