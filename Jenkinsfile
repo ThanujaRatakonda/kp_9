@@ -59,20 +59,28 @@ pipeline {
             }
         }
 
-        stage('Deploy K8s & ArgoCD') {
+        stage('Deploy K8s Manifests') {
             steps {
                 script {
                     sh """
                     export ENV=${params.ENV}
 
-                    # Apply k8s manifests
+                    # Apply k8s manifests to chosen namespace
                     for file in k8s/*; do
                         envsubst < \$file | kubectl apply -n \$ENV -f -
                     done
+                    """
+                }
+            }
+        }
 
-                    # Apply argocd manifests
+        stage('Deploy ArgoCD Manifests') {
+            steps {
+                script {
+                    sh """
+                    # Apply argocd manifests in their own namespace
                     for file in argocd/*; do
-                        envsubst < \$file | kubectl apply -n \$ENV -f -
+                        kubectl apply -f \$file
                     done
                     """
                 }
@@ -83,10 +91,11 @@ pipeline {
             steps {
                 sh """
                 git add .
-                git commit -m "Update image tag to ${IMAGE_TAG}"
+                git commit -m "Update image tag to ${IMAGE_TAG}" || echo "No changes to commit"
                 git push origin master
                 """
             }
         }
     }
 }
+
