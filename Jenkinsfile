@@ -1,12 +1,16 @@
 pipeline {
     agent any
 
-    // Select environment dynamically
     parameters {
+        choice(
+            name: 'ACTION',
+            choices: ['FULL_PIPELINE', 'FRONTEND_ONLY', 'BACKEND_ONLY'],
+            description: 'Pipeline execution type'
+        )
         choice(
             name: 'ENV',
             choices: ['dev', 'qa', 'prod'],
-            description: 'Target namespace / environment'
+            description: 'Target environment / namespace'
         )
     }
 
@@ -19,21 +23,21 @@ pipeline {
     stages {
 
         stage('Checkout') {
+            when { expression { params.ACTION != 'SCALE_ONLY' } }
             steps {
-                git branch: 'master', url: 'https://github.com/ThanujaRatakonda/kp_7'
+                git branch: 'master', url: 'https://github.com/ThanujaRatakonda/kp_9'
             }
         }
 
         stage('Calculate Release Version') {
+            when { expression { params.ACTION != 'SCALE_ONLY' } }
             steps {
                 script {
-                    // Get last Git tag
                     def lastTag = sh(
                         script: "git tag --sort=-v:refname | head -n 1 || true",
                         returnStdout: true
                     ).trim()
 
-                    // If no tag, start with v1.0.0, else increment patch version
                     if (!lastTag) {
                         env.RELEASE = "v1.0.0"
                     } else {
@@ -41,12 +45,13 @@ pipeline {
                         env.RELEASE = "v${v[0]}.${v[1]}.${v[2].toInteger()+1}"
                     }
 
-                    echo "Release version: ${env.RELEASE}"
+                    echo "Release: ${env.RELEASE}"
                 }
             }
         }
 
         stage('Build & Push Backend') {
+            when { expression { params.ACTION in ['FULL_PIPELINE', 'BACKEND_ONLY'] } }
             steps {
                 withCredentials([usernamePassword(credentialsId: 'harbor-creds', usernameVariable: 'H_USER', passwordVariable: 'H_PASS')]) {
                     sh """
@@ -59,6 +64,7 @@ pipeline {
         }
 
         stage('Build & Push Frontend') {
+            when { expression { params.ACTION in ['FULL_PIPELINE', 'FRONTEND_ONLY'] } }
             steps {
                 withCredentials([usernamePassword(credentialsId: 'harbor-creds', usernameVariable: 'H_USER', passwordVariable: 'H_PASS')]) {
                     sh """
@@ -70,22 +76,23 @@ pipeline {
             }
         }
 
-        stage('Update Helm values') {
+        stage('Update Helm Values') {
+            when { expression { params.ACTION != 'SCALE_ONLY' } }
             steps {
-                script {
-                    // Update backend Helm values
-                    sh "sed -i 's/tag:.*/tag: \"${RELEASE}\"/' backend-hc/backendvalues.yaml"
-                    // Update frontend Helm values
-                    sh "sed -i 's/tag:.*/tag: \"${RELEASE}\"/' frontend-hc/frontendvalues.yaml"
-                }
+                sh """
+                    sed -i 's/tag:.*/tag: "${RELEASE}"/' backend-hc/backendvalues.yaml
+                    sed -i 's/tag:.*/tag: "${RELEASE}"/' frontend-hc/frontendvalues.yaml
+                """
             }
         }
 
-        stage('Apply K8s & ArgoCD') {
+        stage('Apply Infra & ArgoCD') {
+            when { expression { params.ACTION != 'SCALE_ONLY' } }
             steps {
                 sh """
                     export ENV=${ENV}
-                    # Apply infra (namespace, storage, PVC)
+
+                    # Apply k8s infra (Namespace, PV, PVC, StorageClass)
                     for f in k8s/*.yaml; do
                         envsubst < \$f | kubectl apply -f -
                     done
@@ -99,6 +106,7 @@ pipeline {
         }
 
         stage('Create Git Tag') {
+            when { expression { params.ACTION != 'SCALE_ONLY' } }
             steps {
                 sh """
                     git tag ${RELEASE}
