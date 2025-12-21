@@ -93,22 +93,18 @@ pipeline {
         }
 
         stage('Trigger ArgoCD Sync') {
-            steps {
-                script {
-                    def apps = ['frontend', 'backend']
-                    apps.each { app ->
-                        if (params.SERVICE in ['all', app]) {
-                            sh """
-                                argocd app sync ${app} \
-                                --grpc-web \
-                                --server <ARGOCD_SERVER> \
-                                --auth-token <ARGOCD_AUTH_TOKEN>
-                            """
-                        }
-                    }
+    steps {
+        script {
+            def apps = ['frontend', 'backend']
+            apps.each { app ->
+                if (params.SERVICE in ['all', app]) {
+                    sh "argocd app sync ${app} --grpc-web --server <ARGOCD_SERVER> --auth-token <ARGOCD_AUTH_TOKEN>"
                 }
             }
         }
+    }
+}
+
     }
 
     post {
