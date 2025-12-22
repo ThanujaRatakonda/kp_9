@@ -130,23 +130,19 @@ pipeline {
     /* =========================
        APPLY K8S AND ARGOCD RESOURCES TOGETHER
        ========================= */
-stage('Apply Kubernetes & ArgoCD Resources') {
-  when { expression { params.ACTION in ['FULL_PIPELINE', 'ARGOCD_ONLY'] } }
-  steps {
-    script {
-       sh """
-        kubectl apply -f k8s/ -n ${params.ENV}
-      """
-      sh """
-        # Replace the namespace placeholder with the correct environment namespace
-        sed -i 's/namespace: .*/namespace: ${params.ENV}/g' argocd/*.yaml
-
-        # Apply the ArgoCD resources with the correct namespace
-        kubectl apply -f argocd/ -n ${params.ENV}
-      """
+ stage('Apply Kubernetes & ArgoCD Resources') {
+      when { expression { params.ACTION in ['FULL_PIPELINE', 'ARGOCD_ONLY'] } }
+      steps {
+        script {
+          sh """
+            kubectl apply -f k8s/ -n ${params.ENV}
+          """
+          sh """
+            sed -i 's/namespace: .*/namespace: ${params.ENV}/g' argocd/*.yaml
+            kubectl apply -f argocd/ -n ${params.ENV}
+          """
+        }
+      }
     }
   }
-}
-
-}
 }
