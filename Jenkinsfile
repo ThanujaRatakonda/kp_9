@@ -140,11 +140,7 @@ pipeline {
           sh """
             export ENV=${params.ENV}
 
-            # Apply the namespace with proper substitution (using envsubst)
-            envsubst < k8s/namespace.yaml > k8s/namespace_tmp.yaml
-            kubectl apply -f k8s/namespace_tmp.yaml --namespace=${params.ENV}
-
-            # Substituting ENV directly in shared-pvc.yaml
+            # Substituting ENV directly in shared-pvc.yaml and applying it with the correct namespace
             envsubst < k8s/shared-pvc.yaml > k8s/shared-pvc_tmp.yaml
             kubectl apply -f k8s/shared-pvc_tmp.yaml --namespace=${params.ENV}
 
