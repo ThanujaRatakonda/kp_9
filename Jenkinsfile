@@ -45,7 +45,7 @@ pipeline {
           passwordVariable: 'PASS'
         )]) {
           sh """
-            docker login ${REGISTRY} -u $USER -p $PASS
+            docker login ${REGISTRY} -u \$USER -p \$PASS
             docker tag frontend:${IMAGE_TAG} ${REGISTRY}/${PROJECT}/frontend:${IMAGE_TAG}
             docker push ${REGISTRY}/${PROJECT}/frontend:${IMAGE_TAG}
           """
@@ -83,7 +83,7 @@ pipeline {
           passwordVariable: 'PASS'
         )]) {
           sh """
-            docker login ${REGISTRY} -u $USER -p $PASS
+            docker login ${REGISTRY} -u \$USER -p \$PASS
             docker tag backend:${IMAGE_TAG} ${REGISTRY}/${PROJECT}/backend:${IMAGE_TAG}
             docker push ${REGISTRY}/${PROJECT}/backend:${IMAGE_TAG}
           """
@@ -135,7 +135,7 @@ pipeline {
 
           // Wait for the PVC to be bound to the PV
           sh """
-            while [[ $(kubectl get pvc shared-pvc -n dev -o=jsonpath='{.status.phase}') != "Bound" ]]; do
+            while [[ \$(kubectl get pvc shared-pvc -n dev -o=jsonpath='{.status.phase}') != "Bound" ]]; do
               echo "Waiting for PVC to bind to PV..."
               sleep 5
             done
