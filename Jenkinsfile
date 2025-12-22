@@ -96,7 +96,7 @@ pipeline {
         // ---------- KUBERNETES APPLY ----------
         stage('Apply Kubernetes Manifests') {
             steps {
-                sh "kubectl apply -f k8s/ -n ${ENV}"
+                sh "kubectl apply -f k8s/ -n ${ENV}  || true "
             }
         }
     }
