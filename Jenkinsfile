@@ -130,8 +130,10 @@ pipeline {
     stage('Apply Kubernetes & ArgoCD Resources') {
       steps {
         script {
-          // Ensure ${ENV} variable is passed correctly to kubectl
+          // Use envsubst to replace ${ENV} in k8s/namespace.yaml before applying
           sh """
+            # Replace ${ENV} in the namespace YAML file and apply the changes
+            envsubst < k8s/namespace.yaml | kubectl apply -f - -n ${ENV}
             kubectl apply -f k8s/ -n ${ENV}
             kubectl apply -f argocd/ -n argocd
           """
