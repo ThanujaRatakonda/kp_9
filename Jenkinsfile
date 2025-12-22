@@ -134,10 +134,14 @@ stage('Apply Kubernetes & ArgoCD Resources') {
   when { expression { params.ACTION in ['FULL_PIPELINE', 'ARGOCD_ONLY'] } }
   steps {
     script {
-      sh """
+       sh """
         kubectl apply -f k8s/ -n ${params.ENV}
       """
       sh """
+        # Replace the namespace placeholder with the correct environment namespace
+        sed -i 's/namespace: .*/namespace: ${params.ENV}/g' argocd/*.yaml
+
+        # Apply the ArgoCD resources with the correct namespace
         kubectl apply -f argocd/ -n ${params.ENV}
       """
     }
