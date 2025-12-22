@@ -132,7 +132,7 @@ pipeline {
     /* =========================
        APPLY K8S RESOURCES (Manifests)
        ========================= */
-  stage('Apply Kubernetes & ArgoCD Resources') {
+stage('Apply Kubernetes & ArgoCD Resources') {
   steps {
     script {
       echo "Applying resources for namespace: ${params.ENV}"
@@ -140,14 +140,16 @@ pipeline {
       // Set the environment variable explicitly for envsubst to use
       sh """
         export ENV=${params.ENV}
-        echo "Substituting ENV in namespace.yaml"
-        envsubst < k8s/namespace.yaml > k8s/namespace_tmp.yaml
-        kubectl apply -f k8s/namespace_tmp.yaml  # Apply namespace
 
-        # Apply PV and PVC
+        # Substituting ENV directly in shared-pvc.yaml
+        envsubst < k8s/shared-pvc.yaml > k8s/shared-pvc_tmp.yaml
+        kubectl apply -f k8s/shared-pvc_tmp.yaml --namespace=${params.ENV}
+
+        # Apply PV (no namespace needed for PV)
         kubectl apply -f k8s/shared-pv.yaml
-        kubectl apply -f k8s/shared-pvc.yaml --namespace=${params.ENV}
-        kubectl apply -f k8s/shared-storage-class.yaml  # Apply storage class
+
+        # Apply storage class (no namespace needed)
+        kubectl apply -f k8s/shared-storage-class.yaml
       """
 
       // Apply remaining Kubernetes resources with the correct namespace
