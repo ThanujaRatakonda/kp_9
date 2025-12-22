@@ -132,31 +132,6 @@ pipeline {
     /* =========================
        APPLY K8S RESOURCES (Manifests)
        ========================= */
-   stage('Apply Kubernetes & ArgoCD Resources') {
-  steps {
-    script {
-      // Debug: Print the ENV value to ensure it's correct
-      echo "Applying resources for namespace: ${params.ENV}"
-
-      // Apply the namespace separately first, ensuring the correct substitution
-      sh """
-        envsubst < k8s/namespace.yaml > k8s/namespace_tmp.yaml
-        kubectl apply -f k8s/namespace_tmp.yaml
-      """
-
-      // Apply remaining Kubernetes resources (excluding namespace.yaml)
-      sh """
-        find k8s/ -type f ! -name 'namespace.yaml' -exec kubectl apply -f {} --namespace=${params.ENV} \;
-      """
-
-      // Apply ArgoCD resources separately
-      sh """
-        kubectl apply -f argocd/ --namespace=argocd
-      """
-    }
-  }
-}
-
   }
 
   post {
