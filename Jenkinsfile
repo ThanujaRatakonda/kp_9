@@ -14,7 +14,6 @@ pipeline {
       choices: ['FULL_PIPELINE', 'FRONTEND_ONLY', 'BACKEND_ONLY', 'ARGOCD_ONLY'],
       description: 'Run full pipeline, only frontend/backend, or just apply ArgoCD resources'
     )
-    // Removed ENV choice as dev is already hardcoded
   }
 
   stages {
@@ -45,7 +44,7 @@ pipeline {
           passwordVariable: 'PASS'
         )]) {
           sh """
-            docker login ${REGISTRY} -u \$USER -p \$PASS
+            docker login ${REGISTRY} -u $USER -p $PASS
             docker tag frontend:${IMAGE_TAG} ${REGISTRY}/${PROJECT}/frontend:${IMAGE_TAG}
             docker push ${REGISTRY}/${PROJECT}/frontend:${IMAGE_TAG}
           """
@@ -83,7 +82,7 @@ pipeline {
           passwordVariable: 'PASS'
         )]) {
           sh """
-            docker login ${REGISTRY} -u \$USER -p \$PASS
+            docker login ${REGISTRY} -u $USER -p $PASS
             docker tag backend:${IMAGE_TAG} ${REGISTRY}/${PROJECT}/backend:${IMAGE_TAG}
             docker push ${REGISTRY}/${PROJECT}/backend:${IMAGE_TAG}
           """
@@ -122,43 +121,23 @@ pipeline {
     }
 
     /* =========================
-       CREATE PVC & BIND PV
-       ========================= */
-    stage('Create PVC & Bind PV') {
-      steps {
-        script {
-          // Ensure namespace "dev" exists
-          sh "kubectl get namespace dev || kubectl create namespace dev"
-
-          // Apply the PVC for shared storage
-          sh "kubectl apply -f k8s/shared-pvc.yaml -n dev"
-
-          // Wait for the PVC to be bound to the PV
-          sh """
-            while [[ \$(kubectl get pvc shared-pvc -n dev -o=jsonpath='{.status.phase}') != "Bound" ]]; do
-              echo "Waiting for PVC to bind to PV..."
-              sleep 5
-            done
-          """
-        }
-      }
-    }
-
-    /* =========================
        APPLY K8S AND ARGOCD RESOURCES
        ========================= */
     stage('Apply Kubernetes & ArgoCD Resources') {
       when { expression { params.ACTION in ['FULL_PIPELINE', 'ARGOCD_ONLY'] } }
       steps {
         script {
-          // Apply Kubernetes resources (PV, PVC, etc.)
+          // Check and create namespace if it does not exist
+          sh """
+            kubectl get namespace dev || kubectl create namespace dev
+          """
+          // Apply Kubernetes resources
           sh """
             kubectl apply -f k8s/ -n dev
           """
-
           // Apply ArgoCD resources
           sh """
-            kubectl apply -f argocd/
+            kubectl apply -f argocd/ 
           """
         }
       }
