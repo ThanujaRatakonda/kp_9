@@ -135,16 +135,18 @@ pipeline {
     stage('Apply Kubernetes & ArgoCD Resources') {
   steps {
     script {
-      // Debug: Print the ENV value to ensure it's correct
       echo "Applying resources for namespace: ${params.ENV}"
 
-      // Apply the namespace separately first, ensuring the correct substitution
+      // Set the environment variable explicitly for envsubst to use
       sh """
+        export ENV=${params.ENV}
+        echo "Substituting ENV in namespace.yaml"
         envsubst < k8s/namespace.yaml > k8s/namespace_tmp.yaml
+        cat k8s/namespace_tmp.yaml  // Check the file content after substitution
         kubectl apply -f k8s/namespace_tmp.yaml
       """
 
-      // Apply remaining Kubernetes resources (excluding namespace.yaml)
+      // Apply remaining Kubernetes resources with the correct namespace
       sh """
         kubectl apply -f k8s/ --namespace=${params.ENV}
       """
