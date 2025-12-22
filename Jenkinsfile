@@ -14,11 +14,7 @@ pipeline {
       choices: ['FULL_PIPELINE', 'FRONTEND_ONLY', 'BACKEND_ONLY', 'ARGOCD_ONLY'],
       description: 'Run full pipeline, only frontend/backend, or just apply ArgoCD resources'
     )
-    choice(
-      name: 'ENV',
-      choices: ['dev', 'qa', 'staging', 'prod'],
-      description: 'Select the target environment (namespace)'
-    )
+    // Removed ENV choice as dev is already hardcoded
   }
 
   stages {
@@ -32,7 +28,7 @@ pipeline {
        FRONTEND
        ========================= */
     stage('Build Frontend Image') {
-      when { expression { params.ACTION in ['FULL_PIPELINE','FRONTEND_ONLY'] } }
+      when { expression { params.ACTION in ['FULL_PIPELINE', 'FRONTEND_ONLY'] } }
       steps {
         sh """
           docker build -t frontend:${IMAGE_TAG} ./frontend
@@ -41,7 +37,7 @@ pipeline {
     }
 
     stage('Push Frontend Image') {
-      when { expression { params.ACTION in ['FULL_PIPELINE','FRONTEND_ONLY'] } }
+      when { expression { params.ACTION in ['FULL_PIPELINE', 'FRONTEND_ONLY'] } }
       steps {
         withCredentials([usernamePassword(
           credentialsId: 'harbor-creds',
@@ -58,7 +54,7 @@ pipeline {
     }
 
     stage('Update Frontend Helm Values') {
-      when { expression { params.ACTION in ['FULL_PIPELINE','FRONTEND_ONLY'] } }
+      when { expression { params.ACTION in ['FULL_PIPELINE', 'FRONTEND_ONLY'] } }
       steps {
         sh """
           sed -i 's/tag:.*/tag: "${IMAGE_TAG}"/' frontend-hc/frontendvalues.yaml
@@ -70,7 +66,7 @@ pipeline {
        BACKEND
        ========================= */
     stage('Build Backend Image') {
-      when { expression { params.ACTION in ['FULL_PIPELINE','BACKEND_ONLY'] } }
+      when { expression { params.ACTION in ['FULL_PIPELINE', 'BACKEND_ONLY'] } }
       steps {
         sh """
           docker build -t backend:${IMAGE_TAG} ./backend
@@ -79,7 +75,7 @@ pipeline {
     }
 
     stage('Push Backend Image') {
-      when { expression { params.ACTION in ['FULL_PIPELINE','BACKEND_ONLY'] } }
+      when { expression { params.ACTION in ['FULL_PIPELINE', 'BACKEND_ONLY'] } }
       steps {
         withCredentials([usernamePassword(
           credentialsId: 'harbor-creds',
@@ -96,7 +92,7 @@ pipeline {
     }
 
     stage('Update Backend Helm Values') {
-      when { expression { params.ACTION in ['FULL_PIPELINE','BACKEND_ONLY'] } }
+      when { expression { params.ACTION in ['FULL_PIPELINE', 'BACKEND_ONLY'] } }
       steps {
         sh """
           sed -i 's/tag:.*/tag: "${IMAGE_TAG}"/' backend-hc/backendvalues.yaml
@@ -117,29 +113,30 @@ pipeline {
           sh """
             git config user.name "thanuja"
             git config user.email "ratakondathanuja@gmail.com"
-
             git add frontend-hc/frontendvalues.yaml backend-hc/backendvalues.yaml
             git commit -m "Update images to tag ${IMAGE_TAG}" || echo "No changes"
-
             git push https://${GIT_USER}:${GIT_TOKEN}@github.com/ThanujaRatakonda/kp_9.git master
           """
         }
       }
     }
 
-//       APPLY K8S AND ARGOCD 
-  stage('Apply Kubernetes & ArgoCD Resources') {
+    /* =========================
+       APPLY K8S AND ARGOCD RESOURCES
+       ========================= */
+    stage('Apply Kubernetes & ArgoCD Resources') {
       when { expression { params.ACTION in ['FULL_PIPELINE', 'ARGOCD_ONLY'] } }
       steps {
         script {
           sh """
-            kubectl apply -f k8s/ -n dev 
+            kubectl apply -f k8s/ -n dev
           """
           sh """
             kubectl apply -f argocd/ 
           """
         }
       }
-    }     
+    }
   }
 }
+
