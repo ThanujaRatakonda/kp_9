@@ -137,11 +137,11 @@ stage('Apply Kubernetes & ArgoCD Resources') {
     script {
       // Debug: Print the ENV value to ensure it's correct
       echo "Applying resources for namespace: ${params.ENV}"
-
-      // Apply Kubernetes resources directly
-      sh """
-        kubectl apply -f k8s/ -n ${params.ENV}
-        kubectl apply -f argocd/ -n argocd
+       sh """
+        envsubst < k8s/namespace.yaml > k8s/namespace_tmp.yaml
+        cat k8s/namespace_tmp.yaml  # Check the substituted namespace YAML file
+        kubectl apply -f k8s/ -n ${params.ENV}  # Apply the Kubernetes resources
+        kubectl apply -f argocd/ -n argocd  # Apply ArgoCD resources
       """
     }
   }
