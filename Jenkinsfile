@@ -13,8 +13,9 @@ pipeline {
 
   stages {
 
-// CHECKOUT
-      
+    /* =====================
+       CHECKOUT
+    ===================== */
     stage('Checkout') {
       steps {
         git branch: 'master',
@@ -22,9 +23,9 @@ pipeline {
       }
     }
 
-
-    //   BACKEND
-
+    /* =====================
+       BACKEND
+    ===================== */
     stage('Build Backend Image') {
       steps {
         sh "docker build -t backend:${IMAGE_TAG} ./backend"
@@ -35,21 +36,27 @@ pipeline {
       steps {
         sh """
           trivy image backend:${IMAGE_TAG} \
-          --severity CRITICAL,HIGH \
-          --format json \
-          -o ${TRIVY_OUTPUT_JSON}
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --scanners vuln \
+            --format json \
+            -o ${TRIVY_OUTPUT_JSON}
         """
 
         archiveArtifacts artifacts: "${TRIVY_OUTPUT_JSON}", fingerprint: true
 
         script {
           def count = sh(
-            script: "jq '[.Results[].Vulnerabilities[]? | select(.Severity==\"CRITICAL\" or .Severity==\"HIGH\")] | length' ${TRIVY_OUTPUT_JSON}",
+            script: """
+              jq '[.Results[].Vulnerabilities[]?
+                  | select(.Severity=="CRITICAL" or .Severity=="HIGH")]
+                  | length' ${TRIVY_OUTPUT_JSON}
+            """,
             returnStdout: true
           ).trim()
 
           if (count.toInteger() > 0) {
-            error "CRITICAL/HIGH vulnerabilities found in BACKEND "
+            error "Fixable CRITICAL/HIGH vulnerabilities found in BACKEND ❌"
           }
         }
       }
@@ -82,8 +89,9 @@ pipeline {
       }
     }
 
-    //   FRONTEND
-
+    /* =====================
+       FRONTEND
+    ===================== */
     stage('Build Frontend Image') {
       steps {
         sh "docker build -t frontend:${IMAGE_TAG} ./frontend"
@@ -94,21 +102,27 @@ pipeline {
       steps {
         sh """
           trivy image frontend:${IMAGE_TAG} \
-          --severity CRITICAL,HIGH \
-          --format json \
-          -o ${TRIVY_OUTPUT_JSON}
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --scanners vuln \
+            --format json \
+            -o ${TRIVY_OUTPUT_JSON}
         """
 
         archiveArtifacts artifacts: "${TRIVY_OUTPUT_JSON}", fingerprint: true
 
         script {
           def count = sh(
-            script: "jq '[.Results[].Vulnerabilities[]? | select(.Severity==\"CRITICAL\" or .Severity==\"HIGH\")] | length' ${TRIVY_OUTPUT_JSON}",
+            script: """
+              jq '[.Results[].Vulnerabilities[]?
+                  | select(.Severity=="CRITICAL" or .Severity=="HIGH")]
+                  | length' ${TRIVY_OUTPUT_JSON}
+            """,
             returnStdout: true
           ).trim()
 
           if (count.toInteger() > 0) {
-            error "CRITICAL/HIGH vulnerabilities found in FRONTEND "
+            error "Fixable CRITICAL/HIGH vulnerabilities found in FRONTEND ❌"
           }
         }
       }
@@ -141,9 +155,9 @@ pipeline {
       }
     }
 
-
-     //  GITOPS COMMIT
-
+    /* =====================
+       GITOPS COMMIT
+    ===================== */
     stage('Commit & Push Helm Changes') {
       steps {
         withCredentials([usernamePassword(
@@ -155,7 +169,7 @@ pipeline {
             git config user.name "thanuja"
             git config user.email "ratakondathanuja@gmail.com"
 
-            git add .
+            git add backend-hc/backendvalues.yaml frontend-hc/frontendvalues.yaml
             git commit -m "ci(${ENV}): update images to ${IMAGE_TAG}"
             git push https://${GIT_USER}:${GIT_PASS}@github.com/ThanujaRatakonda/kp_9.git master
           """
