@@ -128,6 +128,9 @@ pipeline {
       when { expression { params.ACTION in ['FULL_PIPELINE', 'ARGOCD_ONLY'] } }
       steps {
         script {
+           sh """
+            kubectl get namespace dev || kubectl create namespace dev
+          """
           sh """
             kubectl apply -f k8s/ -n dev
           """
